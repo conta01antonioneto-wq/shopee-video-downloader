@@ -1,15 +1,14 @@
 {
   "name": "shopee-video-downloader",
   "version": "1.0.0",
-  "description": "Backend para download de vídeos do Shopee Video",
-  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-  "express": "^4.19.2",
-  "cors": "^2.8.5",
-  "puppeteer": "^22.8.2"
-}
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "puppeteer-core": "^22.8.2",
+    "@sparticuz/chromium": "^123.0.0"
+  }
 }
