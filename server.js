@@ -1,5 +1,6 @@
 import express from "express"
 import cors from "cors"
+import fetch from "node-fetch"
 
 const app = express()
 
@@ -8,6 +9,7 @@ app.use(cors({
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"]
 }))
+
 app.use(express.json())
 
 /* ===============================
@@ -19,7 +21,7 @@ app.get("/", (req, res) => {
 })
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", service: "shopee-video-downloader" })
+  res.json({ status: "ok" })
 })
 
 /* ===============================
@@ -32,7 +34,7 @@ function extractVideoCode(url) {
 }
 
 /* ===============================
-   ROTA PRINCIPAL (SEM WATERMARK)
+   DOWNLOAD SEM WATERMARK
 ================================ */
 
 app.post("/download", async (req, res) => {
@@ -44,9 +46,8 @@ app.post("/download", async (req, res) => {
     }
 
     const videoCode = extractVideoCode(url)
-
     if (!videoCode) {
-      return res.status(400).json({ error: "Link inválido da Shopee Video" })
+      return res.status(400).json({ error: "Link inválido" })
     }
 
     const apiUrl =
@@ -55,49 +56,37 @@ app.post("/download", async (req, res) => {
     const response = await fetch(apiUrl, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36",
+          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome Mobile",
         "Accept": "application/json",
         "Accept-Language": "pt-BR,pt;q=0.9"
       }
     })
 
-    if (!response.ok) {
-      return res.status(403).json({
-        error: "A Shopee bloqueou o acesso à API"
-      })
-    }
-
     const json = await response.json()
     const video = json?.data?.video
 
     if (!video?.play_url) {
-      return res.status(404).json({
-        error: "Vídeo não encontrado na API da Shopee"
-      })
+      return res.status(404).json({ error: "Vídeo não encontrado" })
     }
 
-    return res.json({
+    res.json({
       videoUrl: video.play_url,
       thumbnail: video.cover,
       title: video.title || "Shopee Video",
-      author: video.author?.username || "Shopee",
-      duration: video.duration,
       source: "Shopee API"
     })
 
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({
-      error: "Erro interno ao processar o vídeo"
-    })
+    console.error("ERRO:", err)
+    res.status(500).json({ error: "Erro interno" })
   }
 })
 
 /* ===============================
-   START SERVER
+   START
 ================================ */
 
 const PORT = process.env.PORT || 8080
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Servidor rodando na porta", PORT)
 })
