@@ -5,7 +5,22 @@ import * as cheerio from "cheerio"
 
 const app = express()
 
-app.use(cors())
+/* ===============================
+   CORS — OBRIGATÓRIO
+================================ */
+
+// CORS explícito (Railway + Localhost)
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+)
+
+// Preflight
+app.options("*", cors())
+
 app.use(express.json())
 
 /* ===============================
@@ -21,7 +36,7 @@ app.get("/api/health", (req, res) => {
 })
 
 /* ===============================
-   FUNÇÃO: TESTAR URL MP4
+   FUNÇÃO: TESTAR MP4
 ================================ */
 
 async function testMp4(url) {
@@ -34,7 +49,7 @@ async function testMp4(url) {
 }
 
 /* ===============================
-   ROTA PRINCIPAL
+   DOWNLOAD
 ================================ */
 
 app.post("/download", async (req, res) => {
@@ -44,10 +59,6 @@ app.post("/download", async (req, res) => {
     if (!url) {
       return res.status(400).json({ error: "URL é obrigatória" })
     }
-
-    /* ===============================
-       1️⃣ BUSCAR HTML DA PÁGINA
-    ================================ */
 
     const pageRes = await fetch(url, {
       headers: {
@@ -59,10 +70,6 @@ app.post("/download", async (req, res) => {
 
     const html = await pageRes.text()
     const $ = cheerio.load(html)
-
-    /* ===============================
-       2️⃣ EXTRAIR MP4 COM WATERMARK
-    ================================ */
 
     let watermarkedUrl = null
 
@@ -77,30 +84,16 @@ app.post("/download", async (req, res) => {
     })
 
     if (!watermarkedUrl) {
-      return res.status(404).json({
-        error: "Não foi possível localizar o vídeo na página"
-      })
+      return res.status(404).json({ error: "Vídeo não encontrado" })
     }
 
-    /* ===============================
-       3️⃣ EXTRAIR ID BASE DO VÍDEO
-    ================================ */
-
-    const idMatch = watermarkedUrl.match(
-      /(br-\d+-[a-z0-9-]+)/i
-    )
+    const idMatch = watermarkedUrl.match(/(br-\d+-[a-z0-9-]+)/i)
 
     if (!idMatch) {
-      return res.status(404).json({
-        error: "ID do vídeo não encontrado"
-      })
+      return res.status(404).json({ error: "ID do vídeo não encontrado" })
     }
 
     const videoId = idMatch[1]
-
-    /* ===============================
-       4️⃣ TESTAR CDN SEM WATERMARK
-    ================================ */
 
     const cleanUrl =
       `https://down-tx-br.vod.susercontent.com/api/v4/11110124/mms/${videoId}.mp4`
@@ -109,36 +102,28 @@ app.post("/download", async (req, res) => {
 
     const finalUrl = exists ? cleanUrl : watermarkedUrl
 
-    /* ===============================
-       5️⃣ META DADOS
-    ================================ */
-
     const thumbnail =
       $('meta[property="og:image"]').attr("content") || null
 
     const title =
       $('meta[property="og:title"]').attr("content") || "Shopee Video"
 
-    /* ===============================
-       6️⃣ RESPOSTA FINAL
-    ================================ */
-
     return res.json({
       videoUrl: finalUrl,
       thumbnail,
       title,
-      watermark: !exists ? true : false
+      watermark: !exists
     })
 
   } catch (err) {
     return res.status(500).json({
-      error: err.message || "Erro interno no servidor"
+      error: err.message || "Erro interno"
     })
   }
 })
 
 /* ===============================
-   START SERVER
+   START
 ================================ */
 
 const PORT = process.env.PORT || 8080
