@@ -1,62 +1,103 @@
 import express from "express"
 import cors from "cors"
-import chromium from "@sparticuz/chromium"
-import puppeteer from "puppeteer-core"
 
 const app = express()
-app.use(cors())
+
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}))
 app.use(express.json())
+
+/* ===============================
+   ROTAS BÁSICAS
+================================ */
 
 app.get("/", (req, res) => {
   res.send("🚀 Shopee Video Downloader API is running")
 })
 
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", service: "shopee-video-downloader" })
+})
+
+/* ===============================
+   FUNÇÃO AUXILIAR
+================================ */
+
+function extractVideoCode(url) {
+  const match = url.match(/share-video\/([^?]+)/)
+  return match ? match[1] : null
+}
+
+/* ===============================
+   ROTA PRINCIPAL (SEM WATERMARK)
+================================ */
+
 app.post("/download", async (req, res) => {
-  const { url } = req.body
-  if (!url) {
-    return res.status(400).json({ error: "URL é obrigatória" })
-  }
-
-  let browser
-
   try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless
-    })
+    const { url } = req.body
 
-    const page = await browser.newPage()
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
-    )
-
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 })
-
-    const videoUrl = await page.evaluate(() => {
-      const video = document.querySelector("video")
-      return video ? video.src : null
-    })
-
-    if (!videoUrl) {
-      throw new Error("Vídeo sem marca d'água não encontrado")
+    if (!url) {
+      return res.status(400).json({ error: "URL é obrigatória" })
     }
 
-    res.json({
-      videoUrl,
-      source: "Shopee CDN (clean)"
+    const videoCode = extractVideoCode(url)
+
+    if (!videoCode) {
+      return res.status(400).json({ error: "Link inválido da Shopee Video" })
+    }
+
+    const apiUrl =
+      `https://sv.shopee.com.br/api/v4/video/get?video_code=${videoCode}`
+
+    const response = await fetch(apiUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "pt-BR,pt;q=0.9"
+      }
+    })
+
+    if (!response.ok) {
+      return res.status(403).json({
+        error: "A Shopee bloqueou o acesso à API"
+      })
+    }
+
+    const json = await response.json()
+    const video = json?.data?.video
+
+    if (!video?.play_url) {
+      return res.status(404).json({
+        error: "Vídeo não encontrado na API da Shopee"
+      })
+    }
+
+    return res.json({
+      videoUrl: video.play_url,
+      thumbnail: video.cover,
+      title: video.title || "Shopee Video",
+      author: video.author?.username || "Shopee",
+      duration: video.duration,
+      source: "Shopee API"
     })
 
   } catch (err) {
-    res.status(500).json({ error: err.message })
-  } finally {
-    if (browser) await browser.close()
+    console.error(err)
+    return res.status(500).json({
+      error: "Erro interno ao processar o vídeo"
+    })
   }
 })
 
+/* ===============================
+   START SERVER
+================================ */
+
 const PORT = process.env.PORT || 8080
 app.listen(PORT, () => {
-  console.log("🚀 Servidor rodando com Chromium na porta", PORT)
+  console.log("🚀 Servidor rodando na porta", PORT)
 })
