@@ -1,35 +1,25 @@
 import express from "express"
 import cors from "cors"
-import puppeteer from "puppeteer-core"
+import puppeteer from "puppeteer"
 
 const app = express()
-
-/* ===============================
-   CONFIG BÁSICA
-================================ */
-
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}))
-
+app.use(cors())
 app.use(express.json())
 
 /* ===============================
-   ROTAS DE STATUS
+   ROTAS BÁSICAS
 ================================ */
 
 app.get("/", (req, res) => {
-  res.send("🚀 Shopee Video Downloader API (Puppeteer) is running")
+  res.send("🚀 Shopee Video Downloader API is running")
 })
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", engine: "puppeteer" })
+  res.json({ status: "ok", service: "shopee-video-downloader" })
 })
 
 /* ===============================
-   ROTA PRINCIPAL (SEM WATERMARK)
+   ROTA DE DOWNLOAD (PUPPETEER)
 ================================ */
 
 app.post("/download", async (req, res) => {
@@ -39,7 +29,7 @@ app.post("/download", async (req, res) => {
     return res.status(400).json({ error: "URL é obrigatória" })
   }
 
-  let browser = null
+  let browser
 
   try {
     browser = await puppeteer.launch({
@@ -48,53 +38,41 @@ app.post("/download", async (req, res) => {
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-gpu"
-      ],
-      executablePath: process.env.CHROME_PATH || undefined
+        "--disable-gpu",
+        "--single-process"
+      ]
     })
 
     const page = await browser.newPage()
 
+    // Simula celular (Shopee libera vídeo limpo assim)
     await page.setUserAgent(
-      "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
+      "Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
     )
 
-    let videoUrl = null
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 })
 
-    page.on("request", (req) => {
-      const rurl = req.url()
-
-      if (
-        rurl.includes(".mp4") ||
-        rurl.includes(".m3u8")
-      ) {
-        if (!videoUrl) {
-          videoUrl = rurl
-        }
+    // Captura requisições de vídeo
+    const videoUrl = await page.evaluate(() => {
+      const videos = Array.from(document.querySelectorAll("video"))
+      if (videos.length > 0 && videos[0].src) {
+        return videos[0].src
       }
+      return null
     })
-
-    await page.goto(url, {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    })
-
-    // espera o player carregar
-    await page.waitForTimeout(8000)
 
     if (!videoUrl) {
-      throw new Error("Não foi possível capturar o vídeo original")
+      throw new Error("Vídeo sem marca d'água não encontrado")
     }
 
     return res.json({
       videoUrl,
-      source: "Shopee (original)",
-      watermark: false
+      source: "Shopee CDN"
     })
 
   } catch (err) {
     return res.status(500).json({
-      error: err.message || "Erro ao processar vídeo"
+      error: err.message
     })
   } finally {
     if (browser) await browser.close()
@@ -102,7 +80,7 @@ app.post("/download", async (req, res) => {
 })
 
 /* ===============================
-   START SERVER
+   START SERVER (OBRIGATÓRIO)
 ================================ */
 
 const PORT = process.env.PORT || 8080
