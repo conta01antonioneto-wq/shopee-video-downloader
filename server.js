@@ -1,12 +1,24 @@
 import express from "express"
 import fetch from "node-fetch"
 import * as cheerio from "cheerio"
+import cors from "cors"
 
 const app = express()
+
+/* ===============================
+   MIDDLEWARES
+================================ */
+
+app.use(cors({
+  origin: "*", // libera acesso do frontend
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}))
+
 app.use(express.json())
 
 /* ===============================
-   ROTAS BÁSICAS (OBRIGATÓRIAS)
+   ROTAS BÁSICAS
 ================================ */
 
 app.get("/", (req, res) => {
@@ -33,7 +45,7 @@ app.post("/download", async (req, res) => {
       redirect: "follow",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
         "Accept":
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9"
@@ -54,19 +66,16 @@ app.post("/download", async (req, res) => {
     let title = "Shopee Video"
 
     /* ===============================
-       EXTRAÇÃO VIA <script>
+       EXTRAÇÃO DO MP4
     ================================ */
 
     $("script").each((_, el) => {
       const content = $(el).html()
       if (!content) return
 
-      // tentativa 1: JSON embutido
-      if (content.includes("video")) {
-        const mp4Match = content.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
-        if (mp4Match && !videoUrl) {
-          videoUrl = mp4Match[0]
-        }
+      const mp4Match = content.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
+      if (mp4Match && !videoUrl) {
+        videoUrl = mp4Match[0]
       }
     })
 
@@ -74,16 +83,12 @@ app.post("/download", async (req, res) => {
        FALLBACK: META TAGS
     ================================ */
 
-    const ogImage = $('meta[property="og:image"]').attr("content")
-    if (ogImage) thumbnail = ogImage
-
-    const ogTitle = $('meta[property="og:title"]').attr("content")
-    if (ogTitle) title = ogTitle
+    thumbnail = $('meta[property="og:image"]').attr("content") || null
+    title = $('meta[property="og:title"]').attr("content") || title
 
     if (!videoUrl) {
       return res.status(404).json({
-        error:
-          "Vídeo não encontrado. A Shopee pode exigir acesso exclusivo via app."
+        error: "Vídeo não encontrado. A Shopee pode exigir acesso via app."
       })
     }
 
@@ -95,8 +100,9 @@ app.post("/download", async (req, res) => {
     })
 
   } catch (err) {
+    console.error(err)
     return res.status(500).json({
-      error: err.message || "Erro interno no servidor"
+      error: "Erro interno no servidor"
     })
   }
 })
