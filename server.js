@@ -4,31 +4,18 @@ import * as cheerio from "cheerio"
 import cors from "cors"
 
 const app = express()
-
-/* ===============================
-   CORS — OBRIGATÓRIO PARA BROWSER
-================================ */
-
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"]
-}))
-
-// responde qualquer preflight
-app.options("*", cors())
-
+app.use(cors({ origin: "*" }))
 app.use(express.json())
 
 /* ===============================
    ROTAS BÁSICAS
 ================================ */
 
-app.get("/", (req, res) => {
+app.get("/", (_, res) => {
   res.send("🚀 Shopee Video Downloader API is running")
 })
 
-app.get("/api/health", (req, res) => {
+app.get("/api/health", (_, res) => {
   res.json({ status: "ok", service: "shopee-video-downloader" })
 })
 
@@ -39,64 +26,100 @@ app.get("/api/health", (req, res) => {
 app.post("/download", async (req, res) => {
   try {
     const { url } = req.body
-
     if (!url) {
       return res.status(400).json({ error: "URL é obrigatória" })
     }
 
-    const response = await fetch(url, {
+    // 1️⃣ Carrega página
+    const page = await fetch(url, {
       redirect: "follow",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
-        "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
         "Accept-Language": "pt-BR,pt;q=0.9"
       }
     })
 
-    if (!response.ok) {
-      return res.status(403).json({
-        error: "A Shopee bloqueou o acesso ou o link é inválido"
-      })
-    }
-
-    const html = await response.text()
+    const html = await page.text()
     const $ = cheerio.load(html)
 
+    let videoId = null
     let videoUrl = null
     let thumbnail = null
     let title = "Shopee Video"
+    let watermark = true
 
+    // 2️⃣ Extrai JSON interno
     $("script").each((_, el) => {
-      const content = $(el).html()
-      if (!content) return
+      const txt = $(el).html()
+      if (!txt) return
 
-      const match = content.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
-      if (match && !videoUrl) {
-        videoUrl = match[0]
+      if (txt.includes("video_id")) {
+        try {
+          const match = txt.match(/"video_id":\s*"?(\d+)"?/)
+          if (match) videoId = match[1]
+        } catch {}
       }
     })
 
-    thumbnail = $('meta[property="og:image"]').attr("content") || null
-    title = $('meta[property="og:title"]').attr("content") || title
+    // 3️⃣ Se tiver ID → tenta API interna (sem watermark)
+    if (videoId) {
+      try {
+        const api = await fetch(
+          `https://sv.shopee.com.br/api/v1/video/${videoId}`,
+          {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
+            }
+          }
+        )
 
+        if (api.ok) {
+          const data = await api.json()
+          videoUrl =
+            data?.data?.video?.play_url ||
+            data?.data?.video?.url ||
+            null
+
+          if (videoUrl) watermark = false
+          thumbnail = data?.data?.video?.cover
+          title = data?.data?.video?.title || title
+        }
+      } catch {}
+    }
+
+    // 4️⃣ Fallback: MP4 direto (com watermark)
     if (!videoUrl) {
-      return res.status(404).json({
-        error: "Vídeo não encontrado."
+      $("script").each((_, el) => {
+        const txt = $(el).html()
+        if (!txt) return
+
+        const mp4 = txt.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
+        if (mp4 && !videoUrl) {
+          videoUrl = mp4[0]
+          watermark = true
+        }
       })
     }
 
-    res.json({
+    if (!videoUrl) {
+      return res.status(404).json({
+        error: "Vídeo não encontrado"
+      })
+    }
+
+    return res.json({
       videoUrl,
       thumbnail,
       title,
-      source: "Shopee"
+      watermark
     })
 
   } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: "Erro interno no servidor" })
+    return res.status(500).json({
+      error: err.message || "Erro interno"
+    })
   }
 })
 
