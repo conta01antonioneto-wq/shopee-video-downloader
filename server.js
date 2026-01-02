@@ -6,14 +6,17 @@ import cors from "cors"
 const app = express()
 
 /* ===============================
-   MIDDLEWARES
+   CORS — OBRIGATÓRIO PARA BROWSER
 ================================ */
 
 app.use(cors({
-  origin: "*", // libera acesso do frontend
-  methods: ["GET", "POST"],
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"]
 }))
+
+// responde qualquer preflight
+app.options("*", cors())
 
 app.use(express.json())
 
@@ -30,7 +33,7 @@ app.get("/api/health", (req, res) => {
 })
 
 /* ===============================
-   ROTA PRINCIPAL DE DOWNLOAD
+   ROTA DE DOWNLOAD
 ================================ */
 
 app.post("/download", async (req, res) => {
@@ -65,34 +68,26 @@ app.post("/download", async (req, res) => {
     let thumbnail = null
     let title = "Shopee Video"
 
-    /* ===============================
-       EXTRAÇÃO DO MP4
-    ================================ */
-
     $("script").each((_, el) => {
       const content = $(el).html()
       if (!content) return
 
-      const mp4Match = content.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
-      if (mp4Match && !videoUrl) {
-        videoUrl = mp4Match[0]
+      const match = content.match(/https?:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
+      if (match && !videoUrl) {
+        videoUrl = match[0]
       }
     })
-
-    /* ===============================
-       FALLBACK: META TAGS
-    ================================ */
 
     thumbnail = $('meta[property="og:image"]').attr("content") || null
     title = $('meta[property="og:title"]').attr("content") || title
 
     if (!videoUrl) {
       return res.status(404).json({
-        error: "Vídeo não encontrado. A Shopee pode exigir acesso via app."
+        error: "Vídeo não encontrado."
       })
     }
 
-    return res.json({
+    res.json({
       videoUrl,
       thumbnail,
       title,
@@ -101,14 +96,12 @@ app.post("/download", async (req, res) => {
 
   } catch (err) {
     console.error(err)
-    return res.status(500).json({
-      error: "Erro interno no servidor"
-    })
+    res.status(500).json({ error: "Erro interno no servidor" })
   }
 })
 
 /* ===============================
-   START SERVER
+   START
 ================================ */
 
 const PORT = process.env.PORT || 3000
