@@ -12,12 +12,13 @@ app.get("/", (req, res) => {
 
 app.post("/download", (req, res) => {
   res.json({
-    status: "rota funcionando",
+    ok: true,
+    message: "POST /download FUNCIONANDO",
     body: req.body
   })
 })
 
 const PORT = process.env.PORT || 8080
 app.listen(PORT, () => {
-  console.log("Servidor rodando na porta", PORT)
+  console.log("🚀 Servidor rodando na porta", PORT)
 })
