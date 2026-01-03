@@ -3,33 +3,21 @@ import cors from "cors"
 
 const app = express()
 
-// CORS liberado (teste)
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"]
-}))
-
+app.use(cors())
 app.use(express.json())
 
-/* ===============================
-   ROTAS DE TESTE
-================================ */
-
 app.get("/", (req, res) => {
-  res.send("🚀 Shopee Video Downloader API is running")
+  res.send("API ONLINE")
 })
 
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" })
+app.post("/download", (req, res) => {
+  res.json({
+    status: "rota funcionando",
+    body: req.body
+  })
 })
-
-/* ===============================
-   START SERVER
-================================ */
 
 const PORT = process.env.PORT || 8080
-
 app.listen(PORT, () => {
-  console.log("🚀 Servidor rodando na porta", PORT)
+  console.log("Servidor rodando na porta", PORT)
 })
