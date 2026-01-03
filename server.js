@@ -98,8 +98,10 @@ app.post("/download", async (req, res) => {
     })
 
   } catch (err) {
+    console.error("ERRO REAL:", err)
+
     return res.status(500).json({
-      error: "Erro interno no servidor"
+      error: err.message || "Erro interno no servidor"
     })
   }
 })
