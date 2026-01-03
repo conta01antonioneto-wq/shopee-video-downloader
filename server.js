@@ -2,12 +2,16 @@ import express from "express"
 import cors from "cors"
 import fetch from "node-fetch"
 import * as cheerio from "cheerio"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
+import ffmpeg from "fluent-ffmpeg"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const app = express()
 
-/* ===============================
-   CORS
-================================ */
 app.use(cors({ origin: "*" }))
 app.use(express.json())
 
@@ -18,33 +22,32 @@ app.get("/", (req, res) => {
   res.send("API ONLINE")
 })
 
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" })
-})
-
 /* ===============================
-   FUNÇÃO: TESTAR SE MP4 EXISTE
+   FUNÇÃO: BAIXAR ARQUIVO
 ================================ */
-async function mp4Exists(url) {
-  try {
-    const r = await fetch(url, { method: "HEAD" })
-    return r.ok
-  } catch {
-    return false
-  }
+async function downloadFile(url, outputPath) {
+  const res = await fetch(url)
+  const fileStream = fs.createWriteStream(outputPath)
+  await new Promise((resolve, reject) => {
+    res.body.pipe(fileStream)
+    res.body.on("error", reject)
+    fileStream.on("finish", resolve)
+  })
 }
 
 /* ===============================
-   DOWNLOAD
+   DOWNLOAD + CONVERSÃO
 ================================ */
 app.post("/download", async (req, res) => {
   try {
     const { url } = req.body
-
     if (!url) {
       return res.status(400).json({ error: "URL é obrigatória" })
     }
 
+    /* ===============================
+       BUSCAR MP4 NA PÁGINA
+    ================================ */
     const page = await fetch(url, {
       headers: {
         "User-Agent":
@@ -56,53 +59,64 @@ app.post("/download", async (req, res) => {
     const html = await page.text()
     const $ = cheerio.load(html)
 
-    let watermarked = null
+    let videoUrl = null
 
     $("script").each((_, el) => {
       const t = $(el).html()
       if (!t) return
-
       const m = t.match(/https:\/\/[^"'\\]+\.mp4[^"'\\]*/i)
       if (m && m[0].includes("susercontent")) {
-        watermarked = m[0]
+        videoUrl = m[0]
       }
     })
 
-    if (!watermarked) {
+    if (!videoUrl) {
       return res.status(404).json({ error: "Vídeo não encontrado" })
     }
 
-    const idMatch = watermarked.match(/(br-\d+-[a-z0-9-]+)/i)
-    if (!idMatch) {
-      return res.status(404).json({ error: "ID do vídeo não encontrado" })
-    }
+    /* ===============================
+       CAMINHOS TEMPORÁRIOS
+    ================================ */
+    const tempDir = path.join(__dirname, "temp")
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
 
-    const videoId = idMatch[1]
+    const originalPath = path.join(tempDir, "original.mp4")
+    const convertedPath = path.join(tempDir, "converted.mp4")
 
-    const cleanUrl =
-      `https://down-tx-br.vod.susercontent.com/api/v4/11110124/mms/${videoId}.mp4`
+    /* ===============================
+       BAIXAR VÍDEO ORIGINAL
+    ================================ */
+    await downloadFile(videoUrl, originalPath)
 
-    const cleanExists = await mp4Exists(cleanUrl)
+    /* ===============================
+       CONVERTER COM FFMPEG
+    ================================ */
+    await new Promise((resolve, reject) => {
+      ffmpeg(originalPath)
+        .outputOptions([
+          "-c:v libx264",
+          "-preset fast",
+          "-crf 23",
+          "-pix_fmt yuv420p",
+          "-c:a aac",
+          "-movflags +faststart"
+        ])
+        .save(convertedPath)
+        .on("end", resolve)
+        .on("error", reject)
+    })
 
-    const thumbnail =
-      $('meta[property="og:image"]').attr("content") || null
-
-    const title =
-      $('meta[property="og:title"]').attr("content") || "Shopee Video"
-
-    return res.json({
-      videoUrl: cleanExists ? cleanUrl : watermarked,
-      watermark: !cleanExists,
-      title,
-      thumbnail
+    /* ===============================
+       ENVIAR AO USUÁRIO
+    ================================ */
+    res.download(convertedPath, "video.mp4", () => {
+      fs.unlinkSync(originalPath)
+      fs.unlinkSync(convertedPath)
     })
 
   } catch (err) {
-    console.error("ERRO REAL:", err)
-
-    return res.status(500).json({
-      error: err.message || "Erro interno no servidor"
-    })
+    console.error(err)
+    res.status(500).json({ error: "Erro interno no servidor" })
   }
 })
 
